@@ -1,7 +1,8 @@
-# Branch oss: upstream cal.diy plus this workflow; nothing else changes.
-# A tag "oss/<version>-<commit>" (for example oss/6.2.0-ae027bb70e69) builds
-# ghcr.io/<owner>/cal.diy:<version>-<commit> from upstream's Dockerfile at
-# the tagged commit's parent, which must be that upstream commit.
+# Branch oss: upstream cal.diy plus this workflow and oss.Dockerfile.
+# A tag "oss/<version>-<commit>-oss<n>" (for example
+# oss/6.2.0-ae027bb70e69-oss1) builds upstream's Dockerfile at the tagged
+# commit's parent, which must be that upstream commit, then oss.Dockerfile
+# on top, and pushes ghcr.io/<owner>/cal.diy:<version>-<commit>-oss<n>.
 name: oss image
 
 on:
@@ -99,8 +100,10 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#oss/}"
+          [[ "$version" =~ -oss[0-9]+$ ]] || { echo "::error::tag $GITHUB_REF_NAME doesn't end in -oss<n>"; exit 1; }
           upstream=$(git rev-parse HEAD^)
-          [ "${version##*-}" = "${upstream:0:12}" ] || { echo "::error::tag $GITHUB_REF_NAME doesn't end in the parent commit ${upstream:0:12}"; exit 1; }
+          base="${version%-oss*}"
+          [ "${base##*-}" = "${upstream:0:12}" ] || { echo "::error::tag $GITHUB_REF_NAME doesn't name the parent commit ${upstream:0:12}"; exit 1; }
           echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/cal.diy:$version" >> "$GITHUB_OUTPUT"
       - name: Log in to the registry
@@ -127,6 +130,8 @@ jobs:
           UPSTREAM: ${{ steps.v.outputs.upstream }}
         run: |
           set -euo pipefail
+          cp oss.Dockerfile "$RUNNER_TEMP/oss.Dockerfile"
+          mkdir -p "$RUNNER_TEMP/empty"
           git checkout -q "$UPSTREAM"
           # No provenance or SBOM attestations.
           docker build \
@@ -138,5 +143,11 @@ jobs:
             --label org.opencontainers.image.title=cal.diy \
             --label org.opencontainers.image.revision="$UPSTREAM" \
             --label org.opencontainers.image.licenses=MIT \
-            -t "$IMAGE" .
+            -t upstream:local .
+          docker build \
+            --platform linux/amd64 \
+            --provenance=false --sbom=false \
+            --build-arg BASE=upstream:local \
+            -f "$RUNNER_TEMP/oss.Dockerfile" \
+            -t "$IMAGE" "$RUNNER_TEMP/empty"
           docker push "$IMAGE"
