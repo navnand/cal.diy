@@ -1,7 +1,7 @@
 # Branch oss: upstream cal.diy plus this workflow and oss.Dockerfile.
 # A tag "oss/<version>-<commit>-oss<n>" (for example
-# oss/6.2.0-ae027bb70e69-oss1) builds upstream's Dockerfile at the tagged
-# commit's parent, which must be that upstream commit, then oss.Dockerfile
+# oss/6.2.0-ae027bb70e69-oss1) builds upstream's Dockerfile at the branch's
+# base on upstream main, which must be that commit, then oss.Dockerfile
 # on top, and pushes ghcr.io/<owner>/cal.diy:<version>-<commit>-oss<n>.
 name: oss image
 
@@ -93,7 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       - name: Version and upstream commit
         id: v
@@ -101,9 +101,10 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#oss/}"
           [[ "$version" =~ -oss[0-9]+$ ]] || { echo "::error::tag $GITHUB_REF_NAME doesn't end in -oss<n>"; exit 1; }
-          upstream=$(git rev-parse HEAD^)
+          git fetch -q --no-tags https://github.com/calcom/cal.diy.git "+refs/heads/main:refs/remotes/upstream/main"
+          upstream=$(git merge-base HEAD upstream/main)
           base="${version%-oss*}"
-          [ "${base##*-}" = "${upstream:0:12}" ] || { echo "::error::tag $GITHUB_REF_NAME doesn't name the parent commit ${upstream:0:12}"; exit 1; }
+          [ "${base##*-}" = "${upstream:0:12}" ] || { echo "::error::tag $GITHUB_REF_NAME doesn't name the upstream commit ${upstream:0:12}"; exit 1; }
           echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/cal.diy:$version" >> "$GITHUB_OUTPUT"
       - name: Log in to the registry
