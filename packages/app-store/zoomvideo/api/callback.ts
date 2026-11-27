@@ -10,7 +10,16 @@ import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
 import { getZoomAppKeys } from "../lib";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const state = decodeOAuthState(req);
+  let state: ReturnType<typeof decodeOAuthState>;
+  try {
+    state = decodeOAuthState(req);
+  } catch {
+    state = undefined;
+  }
+  // Refuses a missing, malformed or unsigned state, or one signed for another user.
+  if (!state) {
+    return res.status(400).json({ message: "Invalid OAuth state" });
+  }
   const { code } = req.query;
   const { client_id, client_secret } = await getZoomAppKeys();
 
