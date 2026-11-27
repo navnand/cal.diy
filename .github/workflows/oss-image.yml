@@ -1,8 +1,8 @@
-# Branch oss: upstream cal.diy plus this workflow and oss.Dockerfile.
-# A tag "oss/<version>-<commit>-oss<n>" (for example
-# oss/6.2.0-ae027bb70e69-oss1) builds upstream's Dockerfile at the branch's
-# base on upstream main, which must be that commit, then oss.Dockerfile
-# on top, and pushes ghcr.io/<owner>/cal.diy:<version>-<commit>-oss<n>.
+# Branch oss: upstream cal.diy plus this workflow, oss.Dockerfile and small
+# source patches. A tag "oss/<version>-<commit>-oss<n>" (for example
+# oss/6.2.0-ae027bb70e69-oss1) checks that the branch's base on upstream main
+# is that commit, builds upstream's Dockerfile at the tagged commit, then
+# oss.Dockerfile on top, and pushes ghcr.io/<owner>/cal.diy:<version>-<commit>-oss<n>.
 name: oss image
 
 on:
@@ -105,7 +105,6 @@ jobs:
           upstream=$(git merge-base HEAD upstream/main)
           base="${version%-oss*}"
           [ "${base##*-}" = "${upstream:0:12}" ] || { echo "::error::tag $GITHUB_REF_NAME doesn't name the upstream commit ${upstream:0:12}"; exit 1; }
-          echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/cal.diy:$version" >> "$GITHUB_OUTPUT"
       - name: Log in to the registry
         env:
@@ -128,12 +127,9 @@ jobs:
         if: steps.have.outputs.exists != '1'
         env:
           IMAGE: ${{ steps.v.outputs.image }}
-          UPSTREAM: ${{ steps.v.outputs.upstream }}
         run: |
           set -euo pipefail
-          cp oss.Dockerfile "$RUNNER_TEMP/oss.Dockerfile"
           mkdir -p "$RUNNER_TEMP/empty"
-          git checkout -q "$UPSTREAM"
           # No provenance or SBOM attestations.
           docker build \
             --platform linux/amd64 \
@@ -142,13 +138,13 @@ jobs:
             --build-arg CALCOM_TELEMETRY_DISABLED=1 \
             --label org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}" \
             --label org.opencontainers.image.title=cal.diy \
-            --label org.opencontainers.image.revision="$UPSTREAM" \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
             --label org.opencontainers.image.licenses=MIT \
             -t upstream:local .
           docker build \
             --platform linux/amd64 \
             --provenance=false --sbom=false \
             --build-arg BASE=upstream:local \
-            -f "$RUNNER_TEMP/oss.Dockerfile" \
+            -f oss.Dockerfile \
             -t "$IMAGE" "$RUNNER_TEMP/empty"
           docker push "$IMAGE"
